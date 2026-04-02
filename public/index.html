@@ -1,0 +1,1313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blockly to Python Editor</title>
+  <!-- Blockly core — pinned to v10 for stable Mutator + forBlock API -->
+  <script src="https://unpkg.com/blockly@10.4.3/blockly_compressed.js"></script>
+  <script src="https://unpkg.com/blockly@10.4.3/blocks_compressed.js"></script>
+  <script src="https://unpkg.com/blockly@10.4.3/python_compressed.js"></script>
+  <script src="https://unpkg.com/blockly@10.4.3/msg/en.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    header {
+      background: #181825;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #313244;
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: #cba6f7;
+    }
+
+    header .actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    button {
+      background: #45475a;
+      color: #cdd6f4;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: background 0.15s;
+    }
+
+    button:hover { background: #585b70; }
+    button.primary { background: #cba6f7; color: #1e1e2e; font-weight: 600; }
+    button.primary:hover { background: #b4befe; }
+
+    .container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    #blocklyArea {
+      flex: 1;
+      position: relative;
+      min-width: 0;
+    }
+
+    #blocklyDiv {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+    }
+
+    .divider {
+      width: 4px;
+      background: #313244;
+      cursor: col-resize;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+
+    .divider:hover, .divider.dragging { background: #cba6f7; }
+
+    #pythonPanel {
+      width: 420px;
+      min-width: 200px;
+      display: flex;
+      flex-direction: column;
+      background: #11111b;
+    }
+
+    #pythonPanel .panel-header {
+      padding: 10px 16px;
+      background: #181825;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #a6adc8;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #313244;
+    }
+
+    #pythonPanel .panel-header span {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #pythonPanel .panel-header .dot {
+      width: 8px; height: 8px;
+      background: #a6e3a1;
+      border-radius: 50%;
+    }
+
+    #pythonCode {
+      flex: 1;
+      padding: 16px;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.85rem;
+      line-height: 1.6;
+      overflow: auto;
+      white-space: pre;
+      color: #cdd6f4;
+      tab-size: 4;
+    }
+
+    #pythonCode .keyword { color: #cba6f7; }
+    #pythonCode .string  { color: #a6e3a1; }
+    #pythonCode .number  { color: #fab387; }
+    #pythonCode .comment { color: #6c7086; font-style: italic; }
+    #pythonCode .builtin { color: #89b4fa; }
+    #pythonCode .op      { color: #89dceb; }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #a6e3a1;
+      color: #1e1e2e;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: all 0.25s;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .empty-state {
+      color: #6c7086;
+      font-style: italic;
+      font-family: inherit;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>&#x1F9E9; Blockly &rarr; Python Editor</h1>
+  <div class="actions">
+    <button id="btnCopy">Copy Python</button>
+    <button id="btnClear">Clear</button>
+  </div>
+</header>
+
+<div class="container">
+  <div id="blocklyArea">
+    <div id="blocklyDiv"></div>
+  </div>
+  <div class="divider" id="divider"></div>
+  <div id="pythonPanel">
+    <div class="panel-header">
+      <span><span class="dot"></span> Generated Python</span>
+      <span id="lineCount" style="font-weight:400;color:#6c7086"></span>
+    </div>
+    <div id="pythonCode"><span class="empty-state">Add blocks to see Python code…</span></div>
+  </div>
+</div>
+
+<div class="toast" id="toast">Copied to clipboard!</div>
+
+<!-- Blockly toolbox -->
+<xml id="toolbox" style="display:none">
+  <category name="Logic" colour="#5b80a5">
+    <block type="controls_if"></block>
+    <block type="controls_ifelse"></block>
+    <block type="logic_compare"></block>
+    <block type="logic_operation"></block>
+    <block type="logic_negate"></block>
+    <block type="logic_boolean"></block>
+    <block type="logic_null"></block>
+    <block type="logic_ternary"></block>
+  </category>
+  <category name="Loops" colour="#5ba55b">
+    <block type="controls_repeat_ext">
+      <value name="TIMES"><shadow type="math_number"><field name="NUM">10</field></shadow></value>
+    </block>
+    <block type="controls_whileUntil"></block>
+    <block type="controls_for">
+      <value name="FROM"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
+      <value name="TO"><shadow type="math_number"><field name="NUM">10</field></shadow></value>
+      <value name="BY"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
+    </block>
+    <block type="controls_forEach"></block>
+    <block type="controls_flow_statements"></block>
+  </category>
+  <category name="Math" colour="#5b67a5">
+    <block type="math_number"><field name="NUM">0</field></block>
+    <block type="math_arithmetic">
+      <value name="A"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
+      <value name="B"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
+    </block>
+    <block type="math_single"><value name="NUM"><shadow type="math_number"><field name="NUM">9</field></shadow></value></block>
+    <block type="math_trig"><value name="NUM"><shadow type="math_number"><field name="NUM">45</field></shadow></value></block>
+    <block type="math_constant"></block>
+    <block type="math_number_property"><value name="NUMBER_TO_CHECK"><shadow type="math_number"><field name="NUM">0</field></shadow></value></block>
+    <block type="math_round"><value name="NUM"><shadow type="math_number"><field name="NUM">3.1</field></shadow></value></block>
+    <block type="math_on_list"></block>
+    <block type="math_modulo">
+      <value name="DIVIDEND"><shadow type="math_number"><field name="NUM">64</field></shadow></value>
+      <value name="DIVISOR"><shadow type="math_number"><field name="NUM">10</field></shadow></value>
+    </block>
+    <block type="math_constrain">
+      <value name="VALUE"><shadow type="math_number"><field name="NUM">50</field></shadow></value>
+      <value name="LOW"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
+      <value name="HIGH"><shadow type="math_number"><field name="NUM">100</field></shadow></value>
+    </block>
+    <block type="math_random_int">
+      <value name="FROM"><shadow type="math_number"><field name="NUM">1</field></shadow></value>
+      <value name="TO"><shadow type="math_number"><field name="NUM">100</field></shadow></value>
+    </block>
+    <block type="math_random_float"></block>
+  </category>
+  <category name="Text" colour="#5ba58c">
+    <block type="text"></block>
+    <block type="text_join"></block>
+    <block type="text_append">
+      <value name="TEXT"><shadow type="text"></shadow></value>
+    </block>
+    <block type="text_length"><value name="VALUE"><shadow type="text"><field name="TEXT">abc</field></shadow></value></block>
+    <block type="text_isEmpty"><value name="VALUE"><shadow type="text"><field name="TEXT"></field></shadow></value></block>
+    <block type="text_indexOf">
+      <value name="VALUE"><block type="variables_get"><field name="VAR">text</field></block></value>
+      <value name="FIND"><shadow type="text"><field name="TEXT">abc</field></shadow></value>
+    </block>
+    <block type="text_charAt">
+      <value name="VALUE"><block type="variables_get"><field name="VAR">text</field></block></value>
+    </block>
+    <block type="text_getSubstring">
+      <value name="STRING"><block type="variables_get"><field name="VAR">text</field></block></value>
+    </block>
+    <block type="text_changeCase"><value name="TEXT"><shadow type="text"><field name="TEXT">abc</field></shadow></value></block>
+    <block type="text_trim"><value name="TEXT"><shadow type="text"><field name="TEXT"> abc </field></shadow></value></block>
+    <block type="text_print"><value name="TEXT"><shadow type="text"><field name="TEXT">abc</field></shadow></value></block>
+    <block type="text_prompt_ext">
+      <value name="TEXT"><shadow type="text"><field name="TEXT">abc</field></shadow></value>
+    </block>
+  </category>
+  <category name="Lists" colour="#745ba5">
+    <block type="lists_create_with"><mutation items="0"></mutation></block>
+    <block type="lists_create_with"><mutation items="3"></mutation></block>
+    <block type="lists_repeat">
+      <value name="NUM"><shadow type="math_number"><field name="NUM">5</field></shadow></value>
+    </block>
+    <block type="lists_length"></block>
+    <block type="lists_isEmpty"></block>
+    <block type="lists_indexOf">
+      <value name="VALUE"><block type="variables_get"><field name="VAR">list</field></block></value>
+    </block>
+    <block type="lists_getIndex">
+      <value name="VALUE"><block type="variables_get"><field name="VAR">list</field></block></value>
+    </block>
+    <block type="lists_setIndex">
+      <value name="LIST"><block type="variables_get"><field name="VAR">list</field></block></value>
+    </block>
+    <block type="lists_getSublist">
+      <value name="LIST"><block type="variables_get"><field name="VAR">list</field></block></value>
+    </block>
+    <block type="lists_split">
+      <value name="DELIM"><shadow type="text"><field name="TEXT">,</field></shadow></value>
+    </block>
+    <block type="lists_sort"></block>
+  </category>
+  <category name="Classes" colour="#e64553">
+    <label text="Define" web-class="myLabel"></label>
+    <block type="class_definition"></block>
+    <block type="class_init"></block>
+    <block type="class_method"></block>
+    <block type="class_str"></block>
+    <block type="class_repr"></block>
+    <block type="class_len"></block>
+    <block type="class_super_call"></block>
+    <label text="Self attributes" web-class="myLabel"></label>
+    <block type="class_self_set"></block>
+    <block type="class_self_get"></block>
+    <label text="Use objects" web-class="myLabel"></label>
+    <block type="class_create_instance"></block>
+    <block type="class_method_call"></block>
+    <block type="object_get_attr"></block>
+    <block type="object_set_attr"></block>
+  </category>
+  <category name="Modules" colour="#fab387">
+    <block type="import_module"></block>
+    <block type="from_import"></block>
+    <block type="module_get_attr"></block>
+    <block type="module_set_attr"></block>
+    <block type="module_create_instance"></block>
+    <block type="module_call_method"></block>
+  </category>
+  <category name="Decorators" colour="#f9e2af">
+    <block type="decorator_staticmethod"></block>
+    <block type="decorator_classmethod"></block>
+    <block type="decorator_custom"></block>
+  </category>
+  <category name="Comments" colour="#6c7086">
+    <block type="python_comment"></block>
+    <block type="python_multiline_comment"></block>
+  </category>
+  <category name="Variables" colour="#a55b80" custom="VARIABLE"></category>
+  <category name="Functions" colour="#995ba5">
+    <block type="custom_function_def"></block>
+    <block type="custom_function_call"></block>
+    <block type="param_get"></block>
+    <block type="return_value"></block>
+  </category>
+</xml>
+
+<script>
+  // Blockly Python generator compatibility across versions.
+  const pyGenerator = Blockly.Python || Blockly.pythonGenerator;
+  if (!pyGenerator) {
+    throw new Error('Python generator not available in Blockly build.');
+  }
+  if (!pyGenerator.forBlock) {
+    pyGenerator.forBlock = pyGenerator;
+  }
+  Blockly.Python = pyGenerator;
+
+  // ========== CUSTOM CLASS BLOCKS ==========
+
+  // --- class ClassName(Parent): ---
+  Blockly.Blocks['class_definition'] = {
+    init: function() {
+      this.appendDummyInput()
+          .appendField('class')
+          .appendField(new Blockly.FieldTextInput('MyClass'), 'CLASS_NAME')
+          .appendField('inherits')
+          .appendField(new Blockly.FieldTextInput(''), 'PARENT');
+      this.appendStatementInput('BODY').appendField('');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#e64553');
+      this.setTooltip('Define a Python class');
+    }
+  };
+
+  Blockly.Python.forBlock['class_definition'] = function(block, generator) {
+    var name = block.getFieldValue('CLASS_NAME');
+    var parent = block.getFieldValue('PARENT').trim();
+    var body = generator.statementToCode(block, 'BODY') || '  pass\n';
+    var code = 'class ' + name + (parent ? '(' + parent + ')' : '') + ':\n' + body;
+    return code;
+  };
+
+  // --- def __init__(self, ...): with mutator gear ---
+  Blockly.Blocks['init_mutator_container'] = {
+    init: function() {
+      this.appendDummyInput().appendField('parameters');
+      this.appendStatementInput('STACK');
+      this.setColour('#e64553');
+      this.contextMenu = false;
+    }
+  };
+  Blockly.Blocks['init_mutator_item'] = {
+    init: function() {
+      this.appendDummyInput().appendField('input name')
+          .appendField(new Blockly.FieldTextInput('x'), 'PARAM_NAME');
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setColour('#e64553');
+      this.contextMenu = false;
+    }
+  };
+
+  // Register mutator for __init__ parameters
+  Blockly.Extensions.registerMutator('class_init_mutator', {
+    saveExtraState: function() {
+      return { params: this.params_ };
+    },
+    loadExtraState: function(state) {
+      this.params_ = state.params || [];
+      this.rebuildShape_();
+    },
+    decompose: function(workspace) {
+      var top = workspace.newBlock('init_mutator_container');
+      top.initSvg();
+      var conn = top.getInput('STACK').connection;
+      for (var i = 0; i < this.params_.length; i++) {
+        var item = workspace.newBlock('init_mutator_item');
+        item.setFieldValue(this.params_[i], 'PARAM_NAME');
+        item.initSvg();
+        conn.connect(item.previousConnection);
+        conn = item.nextConnection;
+      }
+      return top;
+    },
+    compose: function(top) {
+      this.params_ = [];
+      var item = top.getInputTargetBlock('STACK');
+      while (item) {
+        this.params_.push(item.getFieldValue('PARAM_NAME'));
+        item = item.nextConnection && item.nextConnection.targetBlock();
+      }
+      this.rebuildShape_();
+    },
+    rebuildShape_: function() {
+      if (this.getInput('HEADER')) this.removeInput('HEADER');
+      if (this.getInput('BODY')) this.removeInput('BODY');
+      var sig = 'def __init__ ( self';
+      if (this.params_.length) sig += ', ' + this.params_.join(', ');
+      sig += ' )';
+      this.appendDummyInput('HEADER').appendField(sig);
+      this.appendStatementInput('BODY').appendField('');
+      this.moveInputBefore('HEADER', 'BODY');
+    }
+  }, function() {
+    this.params_ = [];
+  }, ['init_mutator_item']);
+
+  Blockly.Blocks['class_init'] = {
+    init: function() {
+      this.appendDummyInput('HEADER').appendField('def __init__ ( self )');
+      this.appendStatementInput('BODY').appendField('');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#e64553');
+      this.setTooltip('Constructor — click gear to add parameters');
+      Blockly.Extensions.apply('class_init_mutator', this, true);
+    }
+  };
+
+  Blockly.Python.forBlock['class_init'] = function(block, generator) {
+    var args = 'self';
+    if (block.params_.length) args += ', ' + block.params_.join(', ');
+    var body = generator.statementToCode(block, 'BODY') || '  pass\n';
+    return 'def __init__(' + args + '):\n' + body;
+  };
+
+  // --- def method_name(self, ...): with mutator gear ---
+  Blockly.Blocks['method_mutator_container'] = {
+    init: function() {
+      this.appendDummyInput().appendField('parameters');
+      this.appendStatementInput('STACK');
+      this.setColour('#e64553');
+      this.contextMenu = false;
+    }
+  };
+  Blockly.Blocks['method_mutator_item'] = {
+    init: function() {
+      this.appendDummyInput().appendField('input name')
+          .appendField(new Blockly.FieldTextInput('x'), 'PARAM_NAME');
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setColour('#e64553');
+      this.contextMenu = false;
+    }
+  };
+
+  // Register mutator for class method parameters
+  Blockly.Extensions.registerMutator('class_method_mutator', {
+    saveExtraState: function() {
+      return { params: this.params_ };
+    },
+    loadExtraState: function(state) {
+      this.params_ = state.params || [];
+      this.rebuildShape_();
+    },
+    decompose: function(workspace) {
+      var top = workspace.newBlock('method_mutator_container');
+      top.initSvg();
+      var conn = top.getInput('STACK').connection;
+      for (var i = 0; i < this.params_.length; i++) {
+        var item = workspace.newBlock('method_mutator_item');
+        item.setFieldValue(this.params_[i], 'PARAM_NAME');
+        item.initSvg();
+        conn.connect(item.previousConnection);
+        conn = item.nextConnection;
+      }
+      return top;
+    },
+    compose: function(top) {
+      var methodName = this.getFieldValue('METHOD_NAME');
+      this.params_ = [];
+      var item = top.getInputTargetBlock('STACK');
+      while (item) {
+        this.params_.push(item.getFieldValue('PARAM_NAME'));
+        item = item.nextConnection && item.nextConnection.targetBlock();
+      }
+      this.rebuildShape_();
+      if (methodName) this.setFieldValue(methodName, 'METHOD_NAME');
+    },
+    rebuildShape_: function() {
+      var methodName = this.getFieldValue('METHOD_NAME') || 'method';
+      if (this.getInput('HEADER')) this.removeInput('HEADER');
+      if (this.getInput('BODY')) this.removeInput('BODY');
+      var sig = '( self';
+      if (this.params_.length) sig += ', ' + this.params_.join(', ');
+      sig += ' )';
+      this.appendDummyInput('HEADER')
+          .appendField('def')
+          .appendField(new Blockly.FieldTextInput(methodName), 'METHOD_NAME')
+          .appendField(sig);
+      this.appendStatementInput('BODY').appendField('');
+      this.moveInputBefore('HEADER', 'BODY');
+    }
+  }, function() {
+    this.params_ = [];
+  }, ['method_mutator_item']);
+
+  Blockly.Blocks['class_method'] = {
+    init: function() {
+      this.appendDummyInput('HEADER')
+          .appendField('def')
+          .appendField(new Blockly.FieldTextInput('method'), 'METHOD_NAME')
+          .appendField('( self )');
+      this.appendStatementInput('BODY').appendField('');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#e64553');
+      this.setTooltip('Class method — click gear to add parameters');
+      Blockly.Extensions.apply('class_method_mutator', this, true);
+    }
+  };
+
+  Blockly.Python.forBlock['class_method'] = function(block, generator) {
+    var name = block.getFieldValue('METHOD_NAME');
+    var args = 'self';
+    if (block.params_.length) args += ', ' + block.params_.join(', ');
+    var body = generator.statementToCode(block, 'BODY') || '  pass\n';
+    return 'def ' + name + '(' + args + '):\n' + body;
+  };
+
+  // --- def __str__(self): ---
+  Blockly.Blocks['class_str'] = {
+    init: function() {
+      this.appendDummyInput().appendField('def __str__ ( self )');
+      this.appendStatementInput('BODY').appendField('');
+      this.appendValueInput('RETURN')
+          .setCheck(null)
+          .appendField('return');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#e64553');
+      this.setTooltip('String representation — drag a value into return');
+    }
+  };
+
+  Blockly.Python.forBlock['class_str'] = function(block, generator) {
+    var body = generator.statementToCode(block, 'BODY') || '';
+    var ret = generator.valueToCode(block, 'RETURN', generator.ORDER_NONE);
+    var code = 'def __str__(self):\n';
+    if (body) code += body;
+    code += '  return ' + (ret || "''") + '\n';
+    return code;
+  };
+
+  // --- def __repr__(self): ---
+  Blockly.Blocks['class_repr'] = {
+    init: function() {
+      this.appendDummyInput().appendField('def __repr__ ( self )');
+      this.appendStatementInput('BODY').appendField('');
+      this.appendValueInput('RETURN')
+          .setCheck(null)
+          .appendField('return');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#e64553');
+      this.setTooltip('Repr representation — drag a value into return');
+    }
+  };
+
+  Blockly.Python.forBlock['class_repr'] = function(block, generator) {
+    var body = generator.statementToCode(block, 'BODY') || '';
+    var ret = generator.valueToCode(block, 'RETURN', generator.ORDER_NONE);
+    var code = 'def __repr__(self):\n';
+    if (body) code += body;
+    code += '  return ' + (ret || "''") + '\n';
+    return code;
+  };
+
+  // --- def __len__(self): ---
+  Blockly.Blocks['class_len'] = {
+    init: function() {
+      this.appendDummyInput().appendField('def __len__ ( self )');
+      this.appendStatementInput('BODY').appendField('');
+      this.appendValueInput('RETURN')
+          .setCheck(null)
+          .appendField('return');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#e64553');
+      this.setTooltip('Length dunder — drag a value into return');
+    }
+  };
+
+  Blockly.Python.forBlock['class_len'] = function(block, generator) {
+    var body = generator.statementToCode(block, 'BODY') || '';
+    var ret = generator.valueToCode(block, 'RETURN', generator.ORDER_NONE);
+    var code = 'def __len__(self):\n';
+    if (body) code += body;
+    code += '  return ' + (ret || '0') + '\n';
+    return code;
+  };
+
+  // --- self.attr = value ---
+  Blockly.Blocks['class_self_set'] = {
+    init: function() {
+      this.appendValueInput('VALUE')
+          .appendField('self .')
+          .appendField(new Blockly.FieldTextInput('attr'), 'ATTR')
+          .appendField('=');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#e64553');
+      this.setTooltip('Set a self attribute');
+    }
+  };
+
+  Blockly.Python.forBlock['class_self_set'] = function(block, generator) {
+    var attr = block.getFieldValue('ATTR');
+    var value = generator.valueToCode(block, 'VALUE', generator.ORDER_NONE) || 'None';
+    return 'self.' + attr + ' = ' + value + '\n';
+  };
+
+  // --- self.attr (value) ---
+  Blockly.Blocks['class_self_get'] = {
+    init: function() {
+      this.appendDummyInput()
+          .appendField('self .')
+          .appendField(new Blockly.FieldTextInput('attr'), 'ATTR');
+      this.setOutput(true, null);
+      this.setColour('#e64553');
+      this.setTooltip('Get a self attribute');
+    }
+  };
+
+  Blockly.Python.forBlock['class_self_get'] = function(block, generator) {
+    var attr = block.getFieldValue('ATTR');
+    return ['self.' + attr, generator.ORDER_MEMBER];
+  };
+
+  // --- ClassName(args) ---
+  Blockly.Blocks['class_create_instance'] = {
+    init: function() {
+      this.appendDummyInput()
+          .appendField('new')
+          .appendField(new Blockly.FieldTextInput('MyClass'), 'CLASS_NAME')
+          .appendField('(')
+          .appendField(new Blockly.FieldTextInput(''), 'ARGS')
+          .appendField(')');
+      this.setOutput(true, null);
+      this.setColour('#e64553');
+      this.setTooltip('Create a class instance');
+    }
+  };
+
+  Blockly.Python.forBlock['class_create_instance'] = function(block, generator) {
+    var name = block.getFieldValue('CLASS_NAME');
+    var args = block.getFieldValue('ARGS').trim();
+    return [name + '(' + args + ')', generator.ORDER_FUNCTION_CALL];
+  };
+
+  // --- instance.method(args) ---
+  Blockly.Blocks['class_method_call'] = {
+    init: function() {
+      this.appendValueInput('INSTANCE')
+          .appendField('call');
+      this.appendDummyInput()
+          .appendField('.')
+          .appendField(new Blockly.FieldTextInput('method'), 'METHOD')
+          .appendField('(')
+          .appendField(new Blockly.FieldTextInput(''), 'ARGS')
+          .appendField(')');
+      this.setOutput(true, null);
+      this.setPreviousStatement(false);
+      this.setNextStatement(false);
+      this.setColour('#e64553');
+      this.setTooltip('Call a method on an object');
+    }
+  };
+
+  Blockly.Python.forBlock['class_method_call'] = function(block, generator) {
+    var instance = generator.valueToCode(block, 'INSTANCE', generator.ORDER_MEMBER) || 'obj';
+    var method = block.getFieldValue('METHOD');
+    var args = block.getFieldValue('ARGS').trim();
+    return [instance + '.' + method + '(' + args + ')', generator.ORDER_FUNCTION_CALL];
+  };
+
+  // --- super().__init__(args) ---
+  Blockly.Blocks['class_super_call'] = {
+    init: function() {
+      this.appendDummyInput()
+          .appendField('super() .')
+          .appendField(new Blockly.FieldTextInput('__init__'), 'METHOD')
+          .appendField('(')
+          .appendField(new Blockly.FieldTextInput(''), 'ARGS')
+          .appendField(')');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#e64553');
+      this.setTooltip('Call a method on super()');
+    }
+  };
+
+  Blockly.Python.forBlock['class_super_call'] = function(block, generator) {
+    var method = block.getFieldValue('METHOD');
+    var args = block.getFieldValue('ARGS').trim();
+    return 'super().' + method + '(' + args + ')\n';
+  };
+
+  // --- obj.attr (get attribute on any object) ---
+  Blockly.Blocks['object_get_attr'] = {
+    init: function() {
+      this.appendValueInput('OBJ')
+          .setCheck(null);
+      this.appendDummyInput()
+          .appendField('.')
+          .appendField(new Blockly.FieldTextInput('attr'), 'ATTR');
+      this.setInputsInline(true);
+      this.setOutput(true, null);
+      this.setColour('#e64553');
+      this.setTooltip('Get an attribute of an object');
+    }
+  };
+
+  Blockly.Python.forBlock['object_get_attr'] = function(block, generator) {
+    var obj = generator.valueToCode(block, 'OBJ', generator.ORDER_MEMBER) || 'obj';
+    var attr = block.getFieldValue('ATTR');
+    return [obj + '.' + attr, generator.ORDER_MEMBER];
+  };
+
+  // --- obj.attr = value (set attribute on any object) ---
+  Blockly.Blocks['object_set_attr'] = {
+    init: function() {
+      this.appendValueInput('OBJ')
+          .setCheck(null);
+      this.appendValueInput('VALUE')
+          .appendField('.')
+          .appendField(new Blockly.FieldTextInput('attr'), 'ATTR')
+          .appendField('=');
+      this.setInputsInline(true);
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#e64553');
+      this.setTooltip('Set an attribute of an object');
+    }
+  };
+
+  Blockly.Python.forBlock['object_set_attr'] = function(block, generator) {
+    var obj = generator.valueToCode(block, 'OBJ', generator.ORDER_MEMBER) || 'obj';
+    var attr = block.getFieldValue('ATTR');
+    var value = generator.valueToCode(block, 'VALUE', generator.ORDER_NONE) || 'None';
+    return obj + '.' + attr + ' = ' + value + '\n';
+  };
+
+  // ========== PARAMETER ACCESS ==========
+
+  // --- get parameter by name (value block) ---
+  Blockly.Blocks['param_get'] = {
+    init: function() {
+      this.appendDummyInput()
+          .appendField('param')
+          .appendField(new Blockly.FieldTextInput('a'), 'PARAM_NAME');
+      this.setOutput(true, null);
+      this.setColour('#995ba5');
+      this.setTooltip('Get the value of a function/method parameter');
+    }
+  };
+
+  Blockly.Python.forBlock['param_get'] = function(block, generator) {
+    var name = block.getFieldValue('PARAM_NAME');
+    return [name, generator.ORDER_ATOMIC];
+  };
+
+  // ========== CUSTOM FUNCTION DEF with mutator gear ==========
+
+  Blockly.Blocks['func_mutator_container'] = {
+    init: function() {
+      this.appendDummyInput().appendField('parameters');
+      this.appendStatementInput('STACK');
+      this.setColour('#995ba5');
+      this.contextMenu = false;
+    }
+  };
+  Blockly.Blocks['func_mutator_item'] = {
+    init: function() {
+      this.appendDummyInput().appendField('input name')
+          .appendField(new Blockly.FieldTextInput('x'), 'PARAM_NAME');
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setColour('#995ba5');
+      this.contextMenu = false;
+    }
+  };
+
+  // Register mutator for function def parameters
+  Blockly.Extensions.registerMutator('func_def_mutator', {
+    saveExtraState: function() {
+      return { params: this.params_ };
+    },
+    loadExtraState: function(state) {
+      this.params_ = state.params || [];
+      this.rebuildShape_();
+    },
+    decompose: function(workspace) {
+      var top = workspace.newBlock('func_mutator_container');
+      top.initSvg();
+      var conn = top.getInput('STACK').connection;
+      for (var i = 0; i < this.params_.length; i++) {
+        var item = workspace.newBlock('func_mutator_item');
+        item.setFieldValue(this.params_[i], 'PARAM_NAME');
+        item.initSvg();
+        conn.connect(item.previousConnection);
+        conn = item.nextConnection;
+      }
+      return top;
+    },
+    compose: function(top) {
+      var funcName = this.getFieldValue('FUNC_NAME');
+      this.params_ = [];
+      var item = top.getInputTargetBlock('STACK');
+      while (item) {
+        this.params_.push(item.getFieldValue('PARAM_NAME'));
+        item = item.nextConnection && item.nextConnection.targetBlock();
+      }
+      this.rebuildShape_();
+      if (funcName) this.setFieldValue(funcName, 'FUNC_NAME');
+    },
+    rebuildShape_: function() {
+      var funcName = this.getFieldValue('FUNC_NAME') || 'my_func';
+      if (this.getInput('HEADER')) this.removeInput('HEADER');
+      if (this.getInput('BODY')) this.removeInput('BODY');
+      if (this.getInput('RETURN')) this.removeInput('RETURN');
+      var sig = '( ';
+      if (this.params_.length) sig += this.params_.join(', ') + ' ';
+      sig += ')';
+      this.appendDummyInput('HEADER')
+          .appendField('def')
+          .appendField(new Blockly.FieldTextInput(funcName), 'FUNC_NAME')
+          .appendField(sig);
+      this.appendStatementInput('BODY').appendField('');
+      this.appendValueInput('RETURN').setCheck(null).appendField('return');
+      this.moveInputBefore('HEADER', 'BODY');
+      this.moveInputBefore('BODY', 'RETURN');
+    }
+  }, function() {
+    this.params_ = [];
+  }, ['func_mutator_item']);
+
+  Blockly.Blocks['custom_function_def'] = {
+    init: function() {
+      this.appendDummyInput('HEADER')
+          .appendField('def')
+          .appendField(new Blockly.FieldTextInput('my_func'), 'FUNC_NAME')
+          .appendField('( )');
+      this.appendStatementInput('BODY').appendField('');
+      this.appendValueInput('RETURN')
+          .setCheck(null)
+          .appendField('return');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#995ba5');
+      this.setTooltip('Define a function — click gear to add parameters');
+      Blockly.Extensions.apply('func_def_mutator', this, true);
+    }
+  };
+
+  Blockly.Python.forBlock['custom_function_def'] = function(block, generator) {
+    var name = block.getFieldValue('FUNC_NAME');
+    var body = generator.statementToCode(block, 'BODY') || '';
+    var ret = generator.valueToCode(block, 'RETURN', generator.ORDER_NONE);
+    var code = 'def ' + name + '(' + block.params_.join(', ') + '):\n';
+    if (body) code += body;
+    if (ret) {
+      code += '  return ' + ret + '\n';
+    } else if (!body) {
+      code += '  pass\n';
+    }
+    return code;
+  };
+
+  // --- call a custom function ---
+  Blockly.Blocks['custom_function_call'] = {
+    init: function() {
+      this.appendDummyInput()
+          .appendField('call')
+          .appendField(new Blockly.FieldTextInput('my_func'), 'FUNC_NAME')
+          .appendField('(')
+          .appendField(new Blockly.FieldTextInput(''), 'ARGS')
+          .appendField(')');
+      this.setOutput(true, null);
+      this.setColour('#995ba5');
+      this.setTooltip('Call a function and get its return value');
+    }
+  };
+
+  Blockly.Python.forBlock['custom_function_call'] = function(block, generator) {
+    var name = block.getFieldValue('FUNC_NAME');
+    var args = block.getFieldValue('ARGS').trim();
+    return [name + '(' + args + ')', generator.ORDER_FUNCTION_CALL];
+  };
+
+  // --- return statement ---
+  Blockly.Blocks['return_value'] = {
+    init: function() {
+      this.appendValueInput('VALUE')
+          .setCheck(null)
+          .appendField('return');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(false, null);
+      this.setColour('#995ba5');
+      this.setTooltip('Return a value from a function');
+    }
+  };
+
+  Blockly.Python.forBlock['return_value'] = function(block, generator) {
+    var value = generator.valueToCode(block, 'VALUE', generator.ORDER_NONE);
+    if (value) {
+      return 'return ' + value + '\n';
+    }
+    return 'return\n';
+  };
+
+  // ========== MODULES ==========
+
+  // --- import module ---
+  Blockly.Blocks['import_module'] = {
+    init: function() {
+      this.appendDummyInput()
+          .appendField('import')
+          .appendField(new Blockly.FieldTextInput('os'), 'MODULE');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#fab387');
+      this.setTooltip('import module');
+    }
+  };
+
+  Blockly.Python.forBlock['import_module'] = function(block, generator) {
+    var mod = block.getFieldValue('MODULE');
+    return 'import ' + mod + '\n';
+  };
+
+  // --- from module import name ---
+  Blockly.Blocks['from_import'] = {
+    init: function() {
+      this.appendDummyInput()
+          .appendField('from')
+          .appendField(new Blockly.FieldTextInput('os'), 'MODULE')
+          .appendField('import')
+          .appendField(new Blockly.FieldTextInput('path'), 'NAME');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#fab387');
+      this.setTooltip('from module import name');
+    }
+  };
+
+  Blockly.Python.forBlock['from_import'] = function(block, generator) {
+    var mod = block.getFieldValue('MODULE');
+    var name = block.getFieldValue('NAME');
+    return 'from ' + mod + ' import ' + name + '\n';
+  };
+
+  // --- module.attr (get) ---
+  Blockly.Blocks['module_get_attr'] = {
+    init: function() {
+      this.appendValueInput('OBJ')
+          .setCheck(null);
+      this.appendDummyInput()
+          .appendField('.')
+          .appendField(new Blockly.FieldTextInput('attr'), 'ATTR');
+      this.setInputsInline(true);
+      this.setOutput(true, null);
+      this.setColour('#fab387');
+      this.setTooltip('Get attribute: obj.attr');
+    }
+  };
+
+  Blockly.Python.forBlock['module_get_attr'] = function(block, generator) {
+    var obj = generator.valueToCode(block, 'OBJ', generator.ORDER_MEMBER) || 'obj';
+    var attr = block.getFieldValue('ATTR');
+    return [obj + '.' + attr, generator.ORDER_MEMBER];
+  };
+
+  // --- module.attr = value (set) ---
+  Blockly.Blocks['module_set_attr'] = {
+    init: function() {
+      this.appendValueInput('OBJ')
+          .setCheck(null);
+      this.appendValueInput('VALUE')
+          .appendField('.')
+          .appendField(new Blockly.FieldTextInput('attr'), 'ATTR')
+          .appendField('=');
+      this.setInputsInline(true);
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#fab387');
+      this.setTooltip('Set attribute: obj.attr = value');
+    }
+  };
+
+  Blockly.Python.forBlock['module_set_attr'] = function(block, generator) {
+    var obj = generator.valueToCode(block, 'OBJ', generator.ORDER_MEMBER) || 'obj';
+    var attr = block.getFieldValue('ATTR');
+    var value = generator.valueToCode(block, 'VALUE', generator.ORDER_NONE) || 'None';
+    return obj + '.' + attr + ' = ' + value + '\n';
+  };
+
+  // --- new ClassName(args) ---
+  Blockly.Blocks['module_create_instance'] = {
+    init: function() {
+      this.appendDummyInput()
+          .appendField('new')
+          .appendField(new Blockly.FieldTextInput('ClassName'), 'CLASS_NAME')
+          .appendField('(')
+          .appendField(new Blockly.FieldTextInput(''), 'ARGS')
+          .appendField(')');
+      this.setOutput(true, null);
+      this.setColour('#fab387');
+      this.setTooltip('Create instance: ClassName(args)');
+    }
+  };
+
+  Blockly.Python.forBlock['module_create_instance'] = function(block, generator) {
+    var name = block.getFieldValue('CLASS_NAME');
+    var args = block.getFieldValue('ARGS').trim();
+    return [name + '(' + args + ')', generator.ORDER_FUNCTION_CALL];
+  };
+
+  // --- obj.method(args) call ---
+  Blockly.Blocks['module_call_method'] = {
+    init: function() {
+      this.appendValueInput('OBJ')
+          .setCheck(null)
+          .appendField('call');
+      this.appendDummyInput()
+          .appendField('.')
+          .appendField(new Blockly.FieldTextInput('method'), 'METHOD')
+          .appendField('(')
+          .appendField(new Blockly.FieldTextInput(''), 'ARGS')
+          .appendField(')');
+      this.setInputsInline(true);
+      this.setOutput(true, null);
+      this.setColour('#fab387');
+      this.setTooltip('Call method: obj.method(args)');
+    }
+  };
+
+  Blockly.Python.forBlock['module_call_method'] = function(block, generator) {
+    var obj = generator.valueToCode(block, 'OBJ', generator.ORDER_MEMBER) || 'obj';
+    var method = block.getFieldValue('METHOD');
+    var args = block.getFieldValue('ARGS').trim();
+    return [obj + '.' + method + '(' + args + ')', generator.ORDER_FUNCTION_CALL];
+  };
+
+  // ========== DECORATORS ==========
+
+  // --- @staticmethod ---
+  Blockly.Blocks['decorator_staticmethod'] = {
+    init: function() {
+      this.appendDummyInput().appendField('@staticmethod');
+      this.appendStatementInput('METHOD').appendField('');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#f9e2af');
+      this.setTooltip('Wrap the next method with @staticmethod');
+    }
+  };
+
+  Blockly.Python.forBlock['decorator_staticmethod'] = function(block, generator) {
+    var body = generator.statementToCode(block, 'METHOD') || '  pass\n';
+    return '@staticmethod\n' + body;
+  };
+
+  // --- @classmethod ---
+  Blockly.Blocks['decorator_classmethod'] = {
+    init: function() {
+      this.appendDummyInput().appendField('@classmethod');
+      this.appendStatementInput('METHOD').appendField('');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#f9e2af');
+      this.setTooltip('Wrap the next method with @classmethod');
+    }
+  };
+
+  Blockly.Python.forBlock['decorator_classmethod'] = function(block, generator) {
+    var body = generator.statementToCode(block, 'METHOD') || '  pass\n';
+    return '@classmethod\n' + body;
+  };
+
+  // --- @custom_decorator ---
+  Blockly.Blocks['decorator_custom'] = {
+    init: function() {
+      this.appendDummyInput()
+          .appendField('@')
+          .appendField(new Blockly.FieldTextInput('property'), 'DECORATOR');
+      this.appendStatementInput('METHOD').appendField('');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#f9e2af');
+      this.setTooltip('Custom decorator');
+    }
+  };
+
+  Blockly.Python.forBlock['decorator_custom'] = function(block, generator) {
+    var dec = block.getFieldValue('DECORATOR');
+    var body = generator.statementToCode(block, 'METHOD') || '  pass\n';
+    return '@' + dec + '\n' + body;
+  };
+
+  // ========== COMMENTS ==========
+
+  // --- # single-line comment ---
+  Blockly.Blocks['python_comment'] = {
+    init: function() {
+      this.appendDummyInput()
+          .appendField('#')
+          .appendField(new Blockly.FieldTextInput('comment'), 'TEXT');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#6c7086');
+      this.setTooltip('A Python comment');
+    }
+  };
+
+  Blockly.Python.forBlock['python_comment'] = function(block, generator) {
+    var text = block.getFieldValue('TEXT');
+    return '# ' + text + '\n';
+  };
+
+  // --- multi-line """ docstring / comment """ ---
+  Blockly.Blocks['python_multiline_comment'] = {
+    init: function() {
+      this.appendDummyInput()
+          .appendField('"""')
+          .appendField(new Blockly.FieldTextInput('docstring'), 'TEXT')
+          .appendField('"""');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#6c7086');
+      this.setTooltip('A Python docstring / multi-line comment');
+    }
+  };
+
+  Blockly.Python.forBlock['python_multiline_comment'] = function(block, generator) {
+    var text = block.getFieldValue('TEXT');
+    return '"""' + text + '"""\n';
+  };
+
+  // ========== END CUSTOM BLOCKS ==========
+
+  // --- Blockly workspace ---
+  const workspace = Blockly.inject('blocklyDiv', {
+    toolbox: document.getElementById('toolbox'),
+    grid: { spacing: 20, length: 3, colour: '#313244', snap: true },
+    zoom: { controls: true, wheel: true, startScale: 1.0, maxScale: 3, minScale: 0.3, scaleSpeed: 1.2 },
+    trashcan: true,
+    renderer: 'zelos',
+    theme: Blockly.Theme.defineTheme('darkTheme', {
+      base: Blockly.Themes.Classic,
+      componentStyles: {
+        workspaceBackgroundColour: '#1e1e2e',
+        toolboxBackgroundColour: '#181825',
+        toolboxForegroundColour: '#cdd6f4',
+        flyoutBackgroundColour: '#181825',
+        flyoutForegroundColour: '#cdd6f4',
+        flyoutOpacity: 0.95,
+        scrollbarColour: '#45475a',
+        scrollbarOpacity: 0.6,
+        insertionMarkerColour: '#cba6f7',
+        insertionMarkerOpacity: 0.4,
+      }
+    })
+  });
+
+  // --- Python syntax highlighting ---
+  const PYTHON_KEYWORDS = new Set([
+    'False','None','True','and','as','assert','async','await','break',
+    'class','continue','def','del','elif','else','except','finally',
+    'for','from','global','if','import','in','is','lambda','nonlocal',
+    'not','or','pass','raise','return','try','while','with','yield'
+  ]);
+  const PYTHON_BUILTINS = new Set([
+    'print','len','range','int','float','str','list','dict','set',
+    'tuple','bool','input','open','type','isinstance','abs','round',
+    'min','max','sum','sorted','reversed','enumerate','zip','map',
+    'filter','any','all','hasattr','getattr','setattr','super'
+  ]);
+
+  function escHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function highlightPython(code) {
+    // Tokenise raw code, escape each piece individually to preserve < > in output
+    const regex = /(#.*$)|('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")|\b(\d+(?:\.\d+)?)\b|\b([a-zA-Z_]\w*)\b|([+\-*\/%=<>!&|^~]+)/gm;
+    let result = '';
+    let lastIndex = 0;
+    let m;
+    while ((m = regex.exec(code)) !== null) {
+      result += escHtml(code.slice(lastIndex, m.index));
+      const [, comment, str, num, word, op] = m;
+      if (comment)    result += `<span class="comment">${escHtml(comment)}</span>`;
+      else if (str)   result += `<span class="string">${escHtml(str)}</span>`;
+      else if (num)   result += `<span class="number">${escHtml(num)}</span>`;
+      else if (word) {
+        if (PYTHON_KEYWORDS.has(word))  result += `<span class="keyword">${escHtml(word)}</span>`;
+        else if (PYTHON_BUILTINS.has(word)) result += `<span class="builtin">${escHtml(word)}</span>`;
+        else result += escHtml(word);
+      }
+      else if (op)    result += `<span class="op">${escHtml(op)}</span>`;
+      else            result += escHtml(m[0]);
+      lastIndex = regex.lastIndex;
+    }
+    result += escHtml(code.slice(lastIndex));
+    return result;
+  }
+
+  // --- Update generated Python on workspace change ---
+  function updatePython() {
+    const code = Blockly.Python.workspaceToCode(workspace);
+    const el = document.getElementById('pythonCode');
+    const lineCountEl = document.getElementById('lineCount');
+    if (!code.trim()) {
+      el.innerHTML = '<span class="empty-state">Add blocks to see Python code…</span>';
+      lineCountEl.textContent = '';
+      return;
+    }
+    el.innerHTML = highlightPython(code);
+    const lines = code.split('\n').length;
+    lineCountEl.textContent = `${lines} line${lines !== 1 ? 's' : ''}`;
+  }
+
+  workspace.addChangeListener(() => updatePython());
+
+  // --- Copy button ---
+  document.getElementById('btnCopy').addEventListener('click', () => {
+    const code = Blockly.Python.workspaceToCode(workspace);
+    if (!code.trim()) return;
+    navigator.clipboard.writeText(code).then(() => {
+      const toast = document.getElementById('toast');
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 1800);
+    });
+  });
+
+  // --- Clear button ---
+  document.getElementById('btnClear').addEventListener('click', () => {
+    workspace.clear();
+    updatePython();
+  });
+
+  // --- Resizable divider ---
+  const divider = document.getElementById('divider');
+  const pythonPanel = document.getElementById('pythonPanel');
+  let isDragging = false;
+
+  divider.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    divider.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const containerRight = document.querySelector('.container').getBoundingClientRect().right;
+    const newWidth = containerRight - e.clientX;
+    if (newWidth >= 200 && newWidth <= 800) {
+      pythonPanel.style.width = newWidth + 'px';
+      Blockly.svgResize(workspace);
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      divider.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      Blockly.svgResize(workspace);
+    }
+  });
+
+  // --- Handle window resize ---
+  window.addEventListener('resize', () => Blockly.svgResize(workspace));
+</script>
+</body>
+</html>
